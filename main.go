@@ -21,45 +21,48 @@ func main() {
 		RevertReason string
 	}{}
 
-	for {
-		fmt.Println("")
-		err := survey.Ask(qs, &answers)
+	fmt.Println("")
+	err := survey.Ask(qs, &answers)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	revertReasonHex, _ := strings.CutPrefix(answers.RevertReason, "0x") // remove prefix 0x
+	if len(revertReasonHex) < 8 {
+		fmt.Println("wrong input")
+		return
+	}
+
+	selector := revertReasonHex[:8]
+	onlyBytesData := revertReasonHex[8:] // remove selector
+	if len(onlyBytesData)%64 != 0 {
+		fmt.Println("wrong input")
+		return
+	}
+
+	switch selector {
+	case "08c379a0": // selector for Error(string) -> normal revert
+		onlyStringHex := onlyBytesData[64+64:] // remove offset, length
+		res, err := hexToAscii(onlyStringHex)
 		if err != nil {
-			fmt.Println(err.Error())
+			fmt.Println(err)
 			return
 		}
+		fmt.Println("reverted: ", res)
 
-		revertReasonHex, _ := strings.CutPrefix(answers.RevertReason, "0x") // remove prefix 0x
-		if len(revertReasonHex) < 8 {
-			fmt.Println("wrong input")
-			continue
-		}
-
-		selector := revertReasonHex[:8]
-		switch selector {
-		case "08c379a0": // selector for Error(string) -> normal revert
-			onlyStringHex := revertReasonHex[8+64+64:] // remove selector, offset, length
-			res, err := hexToAscii(onlyStringHex)
-			if err != nil {
-				fmt.Println(err)
-				return
+	case "4e487b71": // selector for Panic(uint256) -> panic revert
+		var startInd int
+		for ; startInd < len(onlyBytesData); startInd++ {
+			if onlyBytesData[startInd:startInd+1] != "0" {
+				break
 			}
-			fmt.Println(res)
-
-		case "4e487b71": // selector for Panic(uint256) -> panic revert
-			onlyUintByte := revertReasonHex[8:] // remove selector
-			var startInd int
-			for ; startInd < len(onlyUintByte); startInd++ {
-				if onlyUintByte[startInd:startInd+1] != "0" {
-					break
-				}
-			}
-			panicCode := "0x" + onlyUintByte[startInd:]
-			fmt.Println("reverted with panic code: ", panicCode)
-
-		default: // other selector is custom error
-			fmt.Println("this is custom error, abi needed to decode")
 		}
+		panicCode := "0x" + onlyBytesData[startInd:]
+		fmt.Println("reverted with panic code: ", panicCode)
+
+	default: // other selector is custom error
+		fmt.Println("this is custom error, abi needed to decode")
 	}
 }
 
